@@ -51,6 +51,8 @@ public class OrderService {
         );
       }
 
+      if (order.getOrderItems()== null)throw new OrderNotFoundException(orderId);
+
       String updateItemsQueryTemplate = "UPDATE item SET stock = %d WHERE id = %d;";
       var updateItems = con.createStatement();
 
