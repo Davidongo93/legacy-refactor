@@ -55,6 +55,15 @@ class OrderServiceTest {
 
        assertTrue(exeption.getMessage().contains("Not yet paid"));
    }
+
+    @Test
+    void testDispatchOrderWhenNotFound(){
+        var jdbcUrl = mysql.getJdbcUrl();
+
+        orderService = new OrderService(jdbcUrl);
+        assertThrows(OrderNotFoundException.class,() ->orderService.dispatchOrder(5L));
+
+    }
     private static int getActualStock(Connection connection) throws SQLException {
         var resultSet = connection.createStatement()
                             .executeQuery("SELECT * FROM item WHERE id = %d".formatted(1L));
