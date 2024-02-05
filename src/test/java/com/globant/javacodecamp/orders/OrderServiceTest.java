@@ -18,61 +18,58 @@ import static org.junit.jupiter.api.Assertions.*;
 @Slf4j
 @Testcontainers
 class OrderServiceTest {
-    private OrderService orderService;
 
-    @Container
-    private MySQLContainer<?> mysql = getMySQLContainer();
-   @NotNull
-    private static MySQLContainer<?> getMySQLContainer(){
+  @Container
+  private MySQLContainer<?> mysql = getMySQLContainer();
+  private OrderService orderService;
 
-       return new MySQLContainer<>(DockerImageName.parse("mysql:8.0.32"))
-               .withDatabaseName("shop")
-               .withCopyFileToContainer(MountableFile.forClasspathResource("init.sql"),
-                       "/docker-entrypoint-initdb.d/init.sql")
-               .withUsername("root");
+  @NotNull
+  private static MySQLContainer<?> getMySQLContainer() {
+    return new MySQLContainer<>(DockerImageName.parse("mysql:8.0.32"))
+            .withDatabaseName("shop")
+            .withCopyFileToContainer(MountableFile.forClasspathResource("init.sql"), "/docker-entrypoint-initdb.d/init.sql")
+            .withUsername("root");
+  }
+
+  @Test
+  void testDispatchOrder() {
+    orderService = new OrderService(new JdbcOrderRepository(mysql.getJdbcUrl()));
+
+    var order = orderService.dispatchOrder(1L);
+    assertEquals(OrderState.DISPATCHED, order.getState());
+
+    try(var connection = createConnection()) {
+      var resultSet = connection.createStatement()
+              .executeQuery("SELECT * FROM item WHERE id = %d".formatted(1L));
+      resultSet.next();
+      var stock = resultSet.getInt("stock");
+      assertEquals(98, stock);
+    } catch (SQLException e) {
+      fail();
     }
+  }
 
-    @Test
-    void testOrderDispatched(){
-       var jdbcUrl = mysql.getJdbcUrl();
-       orderService = new OrderService(jdbcUrl);
-        var order = orderService.dispatchOrder(1L);
-        assertEquals(OrderState.DISPATCHED,order.getState());
+  @Test
+  void testDispatchOrderWhenNotPaid() {
+    orderService = new OrderService(new JdbcOrderRepository(mysql.getJdbcUrl()));
+    var exception = assertThrows(RuntimeException.class, () -> orderService.dispatchOrder(4L));
+    assertTrue(exception.getMessage().contains("Not yet paid"));
+  }
 
-        try (Connection connection = DriverManager.getConnection(mysql.getJdbcUrl(),"root","test")) {
-            int actualStock = getActualStock(connection);
-            assertEquals(98,actualStock);
-        } catch (SQLException e) {
-          fail();
-        }
-   }
-    @Test
-    void testDispatchOrderWhenNotPaid(){
-        var jdbcUrl = mysql.getJdbcUrl();
+  @Test
+  void testDispatchOrderWhenNotFound() {
+    orderService = new OrderService(new JdbcOrderRepository(mysql.getJdbcUrl()));
+    var exception = assertThrows(RuntimeException.class, () -> orderService.dispatchOrder(5L));
+    assertTrue(exception.getMessage().contains("not found"));
+  }
 
-        orderService = new OrderService(jdbcUrl);
-       var exeption = assertThrows(RuntimeException.class,() ->orderService.dispatchOrder(4L));
-
-       assertTrue(exeption.getMessage().contains("Not yet paid"));
-   }
-
-    @Test
-    void testDispatchOrderWhenNotFound(){
-        var jdbcUrl = mysql.getJdbcUrl();
-
-        orderService = new OrderService(jdbcUrl);
-        assertThrows(OrderNotFoundException.class,() ->orderService.dispatchOrder(5L));
-
+  private Connection createConnection() throws SQLException {
+    try {
+      Class.forName("com.mysql.cj.jdbc.Driver");
+    } catch (ClassNotFoundException e) {
+      throw new RuntimeException(e);
     }
-    private static int getActualStock(Connection connection) throws SQLException {
-        var resultSet = connection.createStatement()
-                            .executeQuery("SELECT * FROM item WHERE id = %d".formatted(1L));
-        resultSet.next();
-        return resultSet.getInt("stock");
-    }
+    return DriverManager
+            .getConnection(mysql.getJdbcUrl(), "root", "test");
+  }
 }
-//        try {
-//            Class.forName("com.mysql.cj.jdbc.Driver");
-//        } catch (ClassNotFoundException e) {
-//            throw new RuntimeException(e);
-//        }
